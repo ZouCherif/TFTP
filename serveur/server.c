@@ -44,22 +44,22 @@ void handle_request(int server_socket, struct sockaddr_in client_addr, char *fil
         // handle_wrq(server_socket, client_addr, filename);
         break;
     default:
-        printf("Unsupported opcode %d. Sending error packet to client\n", opcode);
-        send_error_packet(server_socket, client_addr, 1, "Unsupported operation");
+        printf("Opcode %d non supporté. Envoi d'un paquet d'erreur au client\n", opcode);
+        send_error_packet(server_socket, client_addr, 1, "Opération non supportée");
         break;
     }
 }
 
 void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename)
 {
-    printf("Handling Read Request (RRQ) from client\n");
+    printf("Traitement de la demande de lecture (RRQ) du client\n");
 
     // Create a separate socket for sending data packets
     int data_socket = socket(AF_INET, SOCK_DGRAM, 0);
     if (data_socket < 0)
     {
-        perror("Error creating data socket");
-        send_error_packet(server_socket, client_addr, 1, "Internal server error");
+        perror("Erreur lors de la création du socket de données");
+        send_error_packet(server_socket, client_addr, 1, "Erreur interne du serveur");
         return;
     }
 
@@ -71,8 +71,8 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
     data_server_addr.sin_port = htons(0);
     if (bind(data_socket, (struct sockaddr *)&data_server_addr, sizeof(data_server_addr)) < 0)
     {
-        perror("Error binding data socket");
-        send_error_packet(server_socket, client_addr, 1, "Internal server error");
+        perror("Erreur lors de la liaison du socket de données");
+        send_error_packet(server_socket, client_addr, 1, "Erreur interne du serveur");
         close(data_socket);
         return;
     }
@@ -86,9 +86,9 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
     FILE *file = fopen(filename, "rb");
     if (file == NULL)
     {
-        send_error_packet(server_socket, client_addr, 1, "File not found");
-        perror("Error opening file for reading");
-        close(data_socket); // Close the data socket
+        send_error_packet(server_socket, client_addr, 1, "Fichier introuvable");
+        perror("Erreur lors de l'ouverture du fichier en lecture");
+        close(data_socket);
         return;
     }
 
@@ -107,7 +107,7 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
         // Send the data packet using the data socket
         if (sendto(data_socket, data_packet, 4 + bytes_read, 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0)
         {
-            perror("Error sending data packet");
+            perror("Erreur lors de l'envoi du paquet de données");
             break;
         }
         printf("Sent data block %d (%ld bytes) to client on port %d\n", block_number, bytes_read, ntohs(client_addr.sin_port));
@@ -120,28 +120,28 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
             {
                 if (attempts >= 2)
                 {
-                    fprintf(stderr, "Max retry attempts reached. Exiting...\n");
+                    fprintf(stderr, "Nombre maximal de tentatives atteint. Sortie...\n");
                     break;
                 }
                 attempts++;
-                fprintf(stderr, "Timeout occurred, retrying...\n");
+                fprintf(stderr, "Un délai d'attente s'est produit, nouvelle tentative...\n");
                 continue;
             }
             else
             {
-                perror("Error receiving ACK packet");
+                perror("Erreur de réception du paquet ACK");
                 break;
             }
         }
         else if (bytes_received == 0)
         {
-            fprintf(stderr, "Connection closed by client.\n");
+            fprintf(stderr, "Connexion fermée par le client.\n");
             break;
         }
 
         if (ack_packet[1] != ACK_OPCODE || (ack_packet[2] != (block_number >> 8)) || (ack_packet[3] != (block_number & 0xFF)))
         {
-            fprintf(stderr, "Invalid ACK packet received. Exiting...\n");
+            fprintf(stderr, "Paquet ACK invalide reçu. Sortie...\n");
             break;
         }
 
@@ -164,7 +164,7 @@ int main()
     server_socket = socket(AF_INET, SOCK_DGRAM, 0);
     if (server_socket < 0)
     {
-        perror("Error creating server socket");
+        perror("Erreur lors de la création du socket serveur");
         exit(EXIT_FAILURE);
     }
 
@@ -175,11 +175,11 @@ int main()
 
     if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
-        perror("Error binding server socket");
+        perror("Erreur de liaison du socket du serveur");
         exit(EXIT_FAILURE);
     }
 
-    printf("Server listening on port %d...\n", SERVER_PORT);
+    printf("Serveur en écoute sur le port %d...\n", SERVER_PORT);
 
     while (1)
     {
@@ -187,7 +187,7 @@ int main()
         ssize_t bytes_received = recvfrom(server_socket, request_packet, MAX_PACKET_SIZE, 0, (struct sockaddr *)&client_addr, &client_addr_len);
         if (bytes_received < 0)
         {
-            perror("Error receiving request packet");
+            perror("Erreur de réception du paquet de requête");
             continue;
         }
 

@@ -24,9 +24,9 @@ void send_error_packet(int server_socket, struct sockaddr_in client_addr, int er
 {
     char error_packet[MAX_PACKET_SIZE];
     memset(error_packet, 0, MAX_PACKET_SIZE);
-    error_packet[0] = 0; // Adding a null byte for the opcode
+    error_packet[0] = 0;
     error_packet[1] = ERROR_OPCODE;
-    error_packet[2] = 0; // Adding a null byte for the error code
+    error_packet[2] = 0;
     error_packet[3] = error_code;
     strcpy(error_packet + 4, error_message);
 
@@ -54,11 +54,41 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
 {
     printf("Handling Read Request (RRQ) from client\n");
 
+    // Create a separate socket for sending data packets
+    int data_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (data_socket < 0)
+    {
+        perror("Error creating data socket");
+        send_error_packet(server_socket, client_addr, 1, "Internal server error");
+        return;
+    }
+
+    // Bind the data socket to any available port (0)
+    struct sockaddr_in data_server_addr;
+    memset(&data_server_addr, 0, sizeof(data_server_addr));
+    data_server_addr.sin_family = AF_INET;
+    data_server_addr.sin_addr.s_addr = INADDR_ANY;
+    data_server_addr.sin_port = htons(0);
+    if (bind(data_socket, (struct sockaddr *)&data_server_addr, sizeof(data_server_addr)) < 0)
+    {
+        perror("Error binding data socket");
+        send_error_packet(server_socket, client_addr, 1, "Internal server error");
+        close(data_socket);
+        return;
+    }
+
+    // Get the port number assigned to the data socket
+    struct sockaddr_in data_socket_addr;
+    socklen_t data_socket_addr_len = sizeof(data_socket_addr);
+    getsockname(data_socket, (struct sockaddr *)&data_socket_addr, &data_socket_addr_len);
+    unsigned short data_port = ntohs(data_socket_addr.sin_port);
+
     FILE *file = fopen(filename, "rb");
     if (file == NULL)
     {
         send_error_packet(server_socket, client_addr, 1, "File not found");
         perror("Error opening file for reading");
+        close(data_socket); // Close the data socket
         return;
     }
 
@@ -74,11 +104,13 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
         data_packet[2] = block_number >> 8;
         data_packet[3] = block_number & 0xFF;
 
-        if (sendto(server_socket, data_packet, 4 + bytes_read, 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0)
+        // Send the data packet using the data socket
+        if (sendto(data_socket, data_packet, 4 + bytes_read, 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0)
         {
             perror("Error sending data packet");
             break;
         }
+        printf("Sent data block %d (%ld bytes) to client on port %d\n", block_number, bytes_read, ntohs(client_addr.sin_port));
 
         char ack_packet[4];
         ssize_t bytes_received = recvfrom(server_socket, ack_packet, 4, 0, NULL, NULL);
@@ -120,6 +152,7 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
     }
 
     fclose(file);
+    close(data_socket);
 }
 
 int main()

@@ -24,20 +24,22 @@ void handle_error_packet(const char *error_packet)
     int error_code = error_packet[3];
     const char *error_message = error_packet + 4;
 
-    fprintf(stderr, "Error from server (Error code: %d): %s\n", error_code, error_message);
+    fprintf(stderr, "Erreur du serveur (Code d'erreur: %d): %s\n", error_code, error_message);
 }
 
 void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *filename)
 {
     char rrq_packet[MAX_PACKET_SIZE];
-    rrq_packet[0] = 0; // Opcode RRQ
+    rrq_packet[0] = 0;
     rrq_packet[1] = RRQ_OPCODE;
     strcpy(rrq_packet + 2, filename);
     rrq_packet[strlen(filename) + 2] = 0;
+    strcpy(rrq_packet + strlen(filename) + 3, "octet");
+    rrq_packet[strlen(filename) + 8] = 0;
 
-    if (sendto(client_socket, rrq_packet, strlen(filename) + 3, 0, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    if (sendto(client_socket, rrq_packet, strlen(filename) + 9, 0, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
-        perror("Error sending RRQ packet");
+        perror("Erreur lors de l'envoi du paquet RRQ");
         return;
     }
 
@@ -45,7 +47,7 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
     timeout.tv_sec = TIMEOUT_SECONDS;
     timeout.tv_usec = 0;
     if (setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout)) < 0){
-        perror("Error setting timeout option");
+        perror("Erreur lors du réglage de l'option de délai d'attente");
         return;
     }
 
@@ -56,9 +58,9 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
         error_packet[0] = 0;
         error_packet[1] = ERROR_OPCODE;
         error_packet[2] = 0;
-        strcpy(error_packet + 4, "Failed to create file");
+        strcpy(error_packet + 4, "Impossible de créer le fichier");
 
-        sendto(client_socket, error_packet, 4 + strlen("Failed to create file") + 1, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+        sendto(client_socket, error_packet, 4 + strlen("Impossible de créer le fichier") + 1, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
         return;
     }
 
@@ -75,11 +77,11 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
         
         if (bytes_received < 0)
         {
-            perror("Error receiving data packet");
+            perror("Erreur lors de la réception du paquet de données");
             break;
         }
         else if (bytes_received == 0){
-            fprintf(stderr, "Connection closed by server.\n");
+            fprintf(stderr, "Connexion fermée par le serveur.\n");
             break;
         }
 
@@ -105,7 +107,7 @@ int main(int argc, char *argv[])
 {
     if (argc != 5)
     {
-        fprintf(stderr, "Usage: %s put filename 127.0.0.1 69\n", argv[0]);
+        fprintf(stderr, "Utilisation: %s <get/put> <nom_de_fichier> 127.0.0.1 69\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
@@ -117,7 +119,7 @@ int main(int argc, char *argv[])
     int server_socket = socket(AF_INET, SOCK_DGRAM, 0);
     if (server_socket < 0)
     {
-        perror("Error creating socket");
+        perror("Erreur lors de la création de la socket");
         exit(EXIT_FAILURE);
     }
 
@@ -135,7 +137,7 @@ int main(int argc, char *argv[])
     }
     else
     {
-        fprintf(stderr, "Unsupported operation\n");
+        fprintf(stderr, "Opération non supportée\n");
         exit(EXIT_FAILURE);
     }
 

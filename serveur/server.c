@@ -41,7 +41,7 @@ void handle_request(int server_socket, struct sockaddr_in client_addr, char *fil
         handle_rrq(server_socket, client_addr, filename);
         break;
     case WRQ_OPCODE:
-        // handle_wrq(server_socket, client_addr, filename);
+        handle_wrq(server_socket, client_addr, filename);
         break;
     default:
         printf("Opcode %d non supporté. Envoi d'un paquet d'erreur au client\n", opcode);
@@ -49,6 +49,95 @@ void handle_request(int server_socket, struct sockaddr_in client_addr, char *fil
         break;
     }
 }
+
+void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename) {
+    printf("Traitement de la demande d'écriture (WRQ) du client\n");
+
+    int data_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (data_socket < 0) {
+        perror("Erreur lors de la création du socket de données");
+        send_error_packet(server_socket, client_addr, 1, "Erreur interne du serveur");
+        return;
+    }
+
+    // Bind the data socket to any available port (0)
+    struct sockaddr_in data_server_addr;
+    memset(&data_server_addr, 0, sizeof(data_server_addr));
+    data_server_addr.sin_family = AF_INET;
+    data_server_addr.sin_addr.s_addr = INADDR_ANY;
+    data_server_addr.sin_port = htons(0);
+    if (bind(data_socket, (struct sockaddr *)&data_server_addr, sizeof(data_server_addr)) < 0) {
+        perror("Erreur lors de la liaison du socket de données");
+        send_error_packet(server_socket, client_addr, 1, "Erreur interne du serveur");
+        close(data_socket);
+        return;
+    }
+
+
+    char ack_packet[4];
+    ack_packet[0] = 0;
+    ack_packet[1] = ACK_OPCODE;
+    ack_packet[2] = 0;
+    ack_packet[3] = 0;
+
+    if (sendto(data_socket, ack_packet, sizeof(ack_packet), 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+        perror("Erreur lors de l'envoi de l'ACK");
+        close(data_socket);
+        return;
+    }
+    
+
+    FILE *file = fopen(filename, "wb");
+    if (file == NULL) {
+        send_error_packet(data_socket, client_addr, 1, "Impossible de créer le fichier");
+        perror("Erreur lors de l'ouverture du fichier en écriture");
+        close(data_socket);
+        return;
+    }
+
+    unsigned short block_number = 1;
+    while (1) {
+        char data_packet[MAX_PACKET_SIZE];
+        ssize_t bytes_received = recvfrom(data_socket, data_packet, MAX_PACKET_SIZE, 0, NULL, NULL);
+        if (bytes_received < 0) {
+            perror("Erreur lors de la réception du paquet de données");
+            break;
+        } else if (bytes_received == 0) {
+            fprintf(stderr, "Connexion fermée par le client.\n");
+            break;
+        }
+
+        if (data_packet[1] != DATA_OPCODE) {
+            fprintf(stderr, "Paquet reçu n'est pas un paquet de données. Sortie...\n");
+            break;
+        }
+
+        unsigned short received_block_number = (data_packet[2] << 8) | data_packet[3];
+        if (received_block_number != block_number) {
+            fprintf(stderr, "Numéro de bloc invalide. Sortie...\n");
+            break;
+        }
+
+        size_t data_size = bytes_received - 4;
+        fwrite(data_packet + 4, 1, data_size, file);
+
+        ack_packet[2] = block_number >> 8;
+        ack_packet[3] = block_number & 0xFF;
+        if (sendto(data_socket, ack_packet, sizeof(ack_packet), 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+            perror("Erreur lors de l'envoi de l'ACK");
+            break;
+        }
+
+        if (data_size < 512)
+            break;
+
+        block_number++;
+    }
+
+    fclose(file);
+    close(data_socket);
+}
+
 
 void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename)
 {

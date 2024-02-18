@@ -11,7 +11,6 @@
 #define SERVER_PORT 69
 #define MAX_PACKET_SIZE 516
 #define TIMEOUT_SECONDS 5
-#define MAX_RETRIES 3
 
 #define RRQ_OPCODE 1
 #define WRQ_OPCODE 2
@@ -26,6 +25,116 @@ void handle_error_packet(const char *error_packet)
 
     fprintf(stderr, "Erreur du serveur (Code d'erreur: %d): %s\n", error_code, error_message);
 }
+
+void handle_wrq(int client_socket, struct sockaddr_in server_addr, const char *filename){
+    char wrq_packet[MAX_PACKET_SIZE];
+    wrq_packet[0] = 0;
+    wrq_packet[1] = WRQ_OPCODE;
+    strcpy(wrq_packet + 2, filename);
+    wrq_packet[strlen(filename) + 2] = 0;
+    strcpy(wrq_packet + strlen(filename) + 3, "octet");
+    wrq_packet[strlen(filename) + 8] = 0;
+
+    if (sendto(client_socket, wrq_packet, strlen(filename) + 9, 0, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        perror("Erreur lors de l'envoi du paquet WRQ");
+        return;
+    }
+
+    struct timeval timeout;
+    timeout.tv_sec = TIMEOUT_SECONDS;
+    timeout.tv_usec = 0;
+    if (setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout)) < 0){
+        perror("Erreur lors du réglage de l'option de délai d'attente");
+        return;
+    }
+
+    socklen_t addr_len = sizeof(server_addr);
+    char ack_packet[4];
+    ssize_t ack_recv = recvfrom(client_socket, ack_packet, sizeof(ack_packet), 0, (struct sockaddr *)&server_addr, &addr_len);
+    if (ack_recv < 0) {
+        perror("Erreur lors de la réception de l'ACK");
+        return;
+    } else if (ack_recv == 0) {
+        fprintf(stderr, "Connexion fermée par le serveur.\n");
+        return;
+    }
+
+    if (ack_packet[1] != ACK_OPCODE) {
+        fprintf(stderr, "Paquet reçu n'est pas un ACK.\n");
+        return;
+    }
+
+    FILE *file = fopen(filename, "rb");
+    if (file == NULL) {
+        perror("Erreur lors de l'ouverture du fichier en écriture");
+        close(client_socket);
+        return;
+    }
+    unsigned short block_number = 1;
+    int attempts = 1;
+
+
+    while (1)
+    {
+        char data_packet[MAX_PACKET_SIZE];
+        ssize_t bytes_read = fread(data_packet + 4, 1, 512, file);
+
+        data_packet[1] = DATA_OPCODE;
+        data_packet[2] = block_number >> 8;
+        data_packet[3] = block_number & 0xFF;
+
+        if (sendto(client_socket, data_packet, 4 + bytes_read, 0, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+        {
+            perror("Erreur lors de l'envoi du paquet de données");
+            break;
+        }
+        printf("Sent data block %d (%ld bytes) to server on port %d\n", block_number, bytes_read, ntohs(server_addr.sin_port));
+
+        char ack_packet[4];
+        ssize_t bytes_received = recvfrom(client_socket, ack_packet, 4, 0, NULL, NULL);
+        if (bytes_received < 0)
+        {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+            {
+                if (attempts >= 2)
+                {
+                    fprintf(stderr, "Nombre maximal de tentatives atteint. Sortie...\n");
+                    break;
+                }
+                attempts++;
+                fprintf(stderr, "Un délai d'attente s'est produit, nouvelle tentative...\n");
+                continue;
+            }
+            else
+            {
+                perror("Erreur de réception du paquet ACK");
+                break;
+            }
+        }
+        else if (bytes_received == 0)
+        {
+            fprintf(stderr, "Connexion fermée par le client.\n");
+            break;
+        }
+
+        if (ack_packet[1] != ACK_OPCODE || (ack_packet[2] != (block_number >> 8)) || (ack_packet[3] != (block_number & 0xFF)))
+        {
+            fprintf(stderr, "Paquet ACK invalide reçu. Sortie...\n");
+            break;
+        }
+
+        block_number++;
+
+        if (bytes_read < 512)
+            break;
+    }
+
+    fclose(file);
+    close(client_socket);
+
+}
+
 
 void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *filename)
 {
@@ -130,7 +239,7 @@ int main(int argc, char *argv[])
     server_addr.sin_port = htons(server_port);
 
     if (strcmp(operation, "put") == 0){
-        // handle_wrq(server_socket, server_addr, filename);
+        handle_wrq(server_socket, server_addr, filename);
     }
     else if (strcmp(operation, "get") == 0){
         handle_rrq(server_socket, server_addr, filename);

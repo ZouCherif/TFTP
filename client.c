@@ -89,7 +89,6 @@ void handle_wrq(int client_socket, struct sockaddr_in server_addr, const char *f
             perror("Erreur lors de l'envoi du paquet de données");
             break;
         }
-        printf("Sent data block %d (%ld bytes) to server on port %d\n", block_number, bytes_read, ntohs(server_addr.sin_port));
 
         char ack_packet[4];
         ssize_t bytes_received = recvfrom(client_socket, ack_packet, 4, 0, NULL, NULL);

@@ -19,6 +19,11 @@
 #define ACK_OPCODE 4
 #define ERROR_OPCODE 5
 
+void send_error_packet(int server_socket, struct sockaddr_in client_addr, int error_code, const char *error_message);
+void handle_request(int server_socket, struct sockaddr_in client_addr, char *filename, unsigned short opcode);
+void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename);
+void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename);
+
 
 void send_error_packet(int server_socket, struct sockaddr_in client_addr, int error_code, const char *error_message)
 {

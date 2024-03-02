@@ -173,11 +173,15 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
     }
 
     unsigned short block_number = 1;
+    struct sockaddr_in server_data_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    socklen_t server_data_addr_len = sizeof(server_data_addr);
 
     while (1)
     {
         char data_packet[MAX_PACKET_SIZE];
-        ssize_t bytes_received = recvfrom(client_socket, data_packet, MAX_PACKET_SIZE, 0, NULL, NULL);
+        ssize_t bytes_received = recvfrom(client_socket, data_packet, MAX_PACKET_SIZE, 0, (struct sockaddr *)&server_data_addr, &server_data_addr_len);
+
         if (data_packet[1] == 5){
             handle_error_packet(data_packet);
             break;
@@ -200,7 +204,7 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
         ack_packet[1] = ACK_OPCODE;
         ack_packet[2] = block_number >> 8;
         ack_packet[3] = block_number & 0xFF;
-        sendto(client_socket, ack_packet, 4, 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
+        sendto(client_socket, ack_packet, 4, 0, (struct sockaddr *)&server_data_addr, server_data_addr_len);
 
         if (bytes_received < 512){   
             break;
@@ -224,8 +228,8 @@ int main(int argc, char *argv[])
     const char *server_ip = argv[3];
     const int server_port = atoi(argv[4]);
 
-    int server_socket = socket(AF_INET, SOCK_DGRAM, 0);
-    if (server_socket < 0)
+    int client_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (client_socket < 0)
     {
         perror("Erreur lors de la création de la socket");
         exit(EXIT_FAILURE);
@@ -238,10 +242,10 @@ int main(int argc, char *argv[])
     server_addr.sin_port = htons(server_port);
 
     if (strcmp(operation, "put") == 0){
-        handle_wrq(server_socket, server_addr, filename);
+        handle_wrq(client_socket, server_addr, filename);
     }
     else if (strcmp(operation, "get") == 0){
-        handle_rrq(server_socket, server_addr, filename);
+        handle_rrq(client_socket, server_addr, filename);
     }
     else
     {
@@ -249,6 +253,6 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    close(server_socket);
+    close(client_socket);
     return 0;
 }

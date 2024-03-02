@@ -124,6 +124,15 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
         return;
     }
 
+    struct timeval timeout;
+    timeout.tv_sec = TIMEOUT_SECONDS;
+    timeout.tv_usec = 0;
+    if (setsockopt(data_socket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout)) < 0){
+        perror("Erreur lors du réglage de l'option de délai d'attente");
+        close(data_socket);
+        return;
+    }
+
 
     char ack_packet[4];
     ack_packet[0] = 0;
@@ -187,6 +196,8 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
 
     fclose(file);
     close(data_socket);
+
+    printf("Done\n");
 }
 
 
@@ -210,6 +221,15 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
     {
         perror("Erreur lors de la liaison du socket de données");
         send_error_packet(server_socket, client_addr, 1, "Erreur interne du serveur");
+        close(data_socket);
+        return;
+    }
+
+    struct timeval timeout;
+    timeout.tv_sec = TIMEOUT_SECONDS;
+    timeout.tv_usec = 0;
+    if (setsockopt(data_socket, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout, sizeof(timeout)) < 0){
+        perror("Erreur lors du réglage de l'option de délai d'attente");
         close(data_socket);
         return;
     }
@@ -314,11 +334,6 @@ int main()
 
     closedir(dir);
 
-    // printf("Files in server directory:\n");
-    // for (int i = 0; i < file_count; i++) {
-    //     printf("%s\n", file_names[i]);
-    // }
-
     init_file_mutexes();
 
     int server_socket;
@@ -354,7 +369,6 @@ int main()
             perror("Erreur de réception du paquet de requête");
             continue;
         }
-
         unsigned short opcode;
         memcpy(&opcode, request_packet, sizeof(opcode));
         opcode = ntohs(opcode);

@@ -10,7 +10,7 @@
 
 #define SERVER_PORT 69
 #define MAX_PACKET_SIZE 516
-#define TIMEOUT_SECONDS 5
+#define TIMEOUT_SECONDS 10
 
 #define RRQ_OPCODE 1
 #define WRQ_OPCODE 2
@@ -174,7 +174,7 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
 
     unsigned short block_number = 1;
     struct sockaddr_in server_data_addr;
-    memset(&server_addr, 0, sizeof(server_addr));
+    memset(&server_data_addr, 0, sizeof(server_data_addr));
     socklen_t server_data_addr_len = sizeof(server_data_addr);
 
     while (1)

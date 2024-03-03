@@ -206,7 +206,7 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
         ack_packet[3] = block_number & 0xFF;
         sendto(client_socket, ack_packet, 4, 0, (struct sockaddr *)&server_data_addr, server_data_addr_len);
 
-        if (bytes_received < 512){   
+        if (bytes_received < 516){   
             break;
         }
         block_number++;

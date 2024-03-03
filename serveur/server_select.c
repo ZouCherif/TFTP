@@ -14,7 +14,6 @@
 #define IP "127.0.0.1"
 #define MAX_PACKET_SIZE 516
 #define TIMEOUT_SECONDS 5
-#define MAX_FILES 100
 
 #define RRQ_OPCODE 1
 #define WRQ_OPCODE 2

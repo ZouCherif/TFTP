@@ -7,7 +7,6 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <sys/time.h>
-#include <pthread.h>
 #include <dirent.h>
 #include <sys/stat.h>
 
@@ -24,35 +23,11 @@
 #define ERROR_OPCODE 5
 
 void send_error_packet(int server_socket, struct sockaddr_in client_addr, int error_code, const char *error_message);
-void *handle_request(void *arg);
 void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename);
 void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename);
 
 
-pthread_mutex_t file_mutexes[MAX_PACKET_SIZE];
-char *file_names[MAX_FILES];
-
-struct ClientRequest {
-    int server_socket;
-    struct sockaddr_in client_addr;
-    char filename[MAX_PACKET_SIZE];
-    unsigned short opcode;
-};
-
-void init_file_mutexes() {
-    for (int i = 0; i < MAX_PACKET_SIZE; ++i) {
-        pthread_mutex_init(&file_mutexes[i], NULL);
-    }
-}
-
-void destroy_file_mutexes() {
-    for (int i = 0; i < MAX_PACKET_SIZE; ++i) {
-        pthread_mutex_destroy(&file_mutexes[i]);
-    }
-}
-
-void send_error_packet(int server_socket, struct sockaddr_in client_addr, int error_code, const char *error_message)
-{
+void send_error_packet(int server_socket, struct sockaddr_in client_addr, int error_code, const char *error_message){
     char error_packet[MAX_PACKET_SIZE];
     memset(error_packet, 0, MAX_PACKET_SIZE);
     error_packet[0] = 0;
@@ -62,44 +37,6 @@ void send_error_packet(int server_socket, struct sockaddr_in client_addr, int er
     strcpy(error_packet + 4, error_message);
 
     sendto(server_socket, error_packet, strlen(error_message) + 5, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
-}
-
-void *handle_request(void *arg) {
-    struct ClientRequest *request = (struct ClientRequest *)arg;
-    int file_index = -1;
-
-    for (int i = 0; i < MAX_FILES; ++i) {
-        if (file_names[i] != NULL && strcmp(request->filename, file_names[i]) == 0) {
-            file_index = i;
-            break;
-        }
-    }
-
-    if (file_index == -1) {
-        send_error_packet(request->server_socket, request->client_addr, 1, "Fichier introuvable");
-        free(request);
-        pthread_exit(NULL);
-    }
-
-    switch (request->opcode) {
-        case RRQ_OPCODE:
-            pthread_mutex_lock(&file_mutexes[file_index]);
-            handle_rrq(request->server_socket, request->client_addr, request->filename);
-            pthread_mutex_unlock(&file_mutexes[file_index]);
-            break;
-        case WRQ_OPCODE:
-            pthread_mutex_lock(&file_mutexes[file_index]);
-            handle_wrq(request->server_socket, request->client_addr, request->filename);
-            pthread_mutex_unlock(&file_mutexes[file_index]);
-            break;
-        default:
-            printf("Opcode %d non supporté. Envoi d'un paquet d'erreur au client\n", request->opcode);
-            send_error_packet(request->server_socket, request->client_addr, 1, "Opération non supportée");
-            break;
-    }
-
-    free(request);
-    pthread_exit(NULL);
 }
 
 void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename) {
@@ -303,37 +240,8 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
     close(data_socket);
 }
 
-int main()
-{
-    int file_count = 0;
-    DIR *dir;
-    struct dirent *entry;
-    struct stat stat_buf;
 
-    dir = opendir(".");
-    if (dir == NULL) {
-        perror("Error opening server directory");
-        exit(EXIT_FAILURE);
-    }
-
-    while ((entry = readdir(dir)) != NULL && file_count < MAX_FILES) {
-        if (stat(entry->d_name, &stat_buf) == 0 && S_ISREG(stat_buf.st_mode))  {
-            char *extension = strrchr(entry->d_name, '.');
-            if (extension != NULL && strcmp(extension, ".txt") == 0) {
-                file_names[file_count] = strdup(entry->d_name);
-                if (file_names[file_count] == NULL) {
-                    perror("Error copying filename");
-                    exit(EXIT_FAILURE);
-                }
-                file_count++;
-            }
-        }
-    }
-
-    closedir(dir);
-
-    init_file_mutexes();
-
+int main(){
     int server_socket;
     struct sockaddr_in server_addr, client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
@@ -358,43 +266,54 @@ int main()
 
     printf("Serveur en écoute sur le port %d...\n", SERVER_PORT);
 
+    fd_set read_fds;
+    int max_fd = server_socket + 1;
+
     while (1)
     {
-        char request_packet[MAX_PACKET_SIZE];
-        ssize_t bytes_received = recvfrom(server_socket, request_packet, MAX_PACKET_SIZE, 0, (struct sockaddr *)&client_addr, &client_addr_len);
-        if (bytes_received < 0)
+        FD_ZERO(&read_fds);
+        FD_SET(server_socket, &read_fds);
+
+        int activity = select(max_fd, &read_fds, NULL, NULL, NULL);
+        if (activity < 0)
         {
-            perror("Erreur de réception du paquet de requête");
-            continue;
-        }
-        unsigned short opcode;
-        memcpy(&opcode, request_packet, sizeof(opcode));
-        opcode = ntohs(opcode);
-
-        struct ClientRequest *request = malloc(sizeof(struct ClientRequest));
-        if (request == NULL) {
-            perror("Erreur d'allocation de mémoire pour la requête client");
+            perror("Erreur dans select");
             continue;
         }
 
-        request->server_socket = server_socket;
-        request->client_addr = client_addr;
-        strcpy(request->filename, request_packet + 2);
-        request->opcode = opcode;
+        if (FD_ISSET(server_socket, &read_fds))
+        {
+            char request_packet[MAX_PACKET_SIZE];
+            ssize_t bytes_received = recvfrom(server_socket, request_packet, MAX_PACKET_SIZE, 0, (struct sockaddr *)&client_addr, &client_addr_len);
+            if (bytes_received < 0)
+            {
+                perror("Erreur de réception du paquet de requête");
+                continue;
+            }
+            unsigned short opcode;
+            memcpy(&opcode, request_packet, sizeof(opcode));
+            opcode = ntohs(opcode);
 
-        pthread_t thread;
-        if (pthread_create(&thread, NULL, handle_request, (void *)request) != 0) {
-            perror("Erreur lors de la création du thread");
-            free(request);
+            char filename[MAX_PACKET_SIZE];
+            strcpy(filename, request_packet + 2);
+
+            switch (opcode)
+            {
+            case RRQ_OPCODE:
+                handle_rrq(server_socket, client_addr, filename);
+                break;
+            case WRQ_OPCODE:
+                handle_wrq(server_socket, client_addr, filename);
+                break;
+            default:
+                printf("Opcode %d non supporté. Envoi d'un paquet d'erreur au client\n", opcode);
+                send_error_packet(server_socket, client_addr, 1, "Opération non supportée");
+                break;
+            }
         }
     }
 
     close(server_socket);
 
-    for (int i = 0; i < file_count; i++) {
-        free(file_names[i]);
-    }
-
-    destroy_file_mutexes();
     return 0;
 }

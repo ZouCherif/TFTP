@@ -50,7 +50,7 @@ void handle_wrq(int client_socket, struct sockaddr_in server_addr, const char *f
     }
 
     socklen_t addr_len = sizeof(server_addr);
-    char ack_packet[4];
+    unsigned char ack_packet[4];
     ssize_t ack_recv = recvfrom(client_socket, ack_packet, sizeof(ack_packet), 0, (struct sockaddr *)&server_addr, &addr_len);
     if (ack_recv < 0) {
         perror("Erreur lors de la réception de l'ACK");
@@ -77,7 +77,7 @@ void handle_wrq(int client_socket, struct sockaddr_in server_addr, const char *f
 
     while (1)
     {
-        char data_packet[MAX_PACKET_SIZE];
+        unsigned char data_packet[MAX_PACKET_SIZE];
         ssize_t bytes_read = fread(data_packet + 4, 1, 512, file);
 
         data_packet[1] = DATA_OPCODE;
@@ -90,7 +90,7 @@ void handle_wrq(int client_socket, struct sockaddr_in server_addr, const char *f
             break;
         }
 
-        char ack_packet[4];
+        unsigned char ack_packet[4];
         ssize_t bytes_received = recvfrom(client_socket, ack_packet, 4, 0, NULL, NULL);
         if (bytes_received < 0)
         {
@@ -179,7 +179,7 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
 
     while (1)
     {
-        char data_packet[MAX_PACKET_SIZE];
+        unsigned char data_packet[MAX_PACKET_SIZE];
         ssize_t bytes_received = recvfrom(client_socket, data_packet, MAX_PACKET_SIZE, 0, (struct sockaddr *)&server_data_addr, &server_data_addr_len);
 
         if (data_packet[1] == 5){
@@ -199,7 +199,7 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
 
         fwrite(data_packet + 4, 1, bytes_received - 4, file);
 
-        char ack_packet[4];
+        unsigned char ack_packet[4];
         ack_packet[0] = 0;
         ack_packet[1] = ACK_OPCODE;
         ack_packet[2] = block_number >> 8;

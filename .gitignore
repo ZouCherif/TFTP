@@ -1,3 +1,5 @@
 *.txt
-*.out
-*.exe
+.vscode/
+client
+server
+server_select

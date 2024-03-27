@@ -70,7 +70,7 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
     }
 
 
-    char ack_packet[4];
+    unsigned char ack_packet[4];
     ack_packet[0] = 0;
     ack_packet[1] = ACK_OPCODE;
     ack_packet[2] = 0;
@@ -93,7 +93,7 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
 
     unsigned short block_number = 1;
     while (1) {
-        char data_packet[MAX_PACKET_SIZE];
+        unsigned char data_packet[MAX_PACKET_SIZE];
         ssize_t bytes_received = recvfrom(data_socket, data_packet, MAX_PACKET_SIZE, 0, NULL, NULL);
         if (bytes_received < 0) {
             perror("Erreur lors de la réception du paquet de données");
@@ -182,7 +182,7 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
 
     while (1)
     {
-        char data_packet[MAX_PACKET_SIZE];
+        unsigned char data_packet[MAX_PACKET_SIZE];
         ssize_t bytes_read = fread(data_packet + 4, 1, 512, file);
 
         data_packet[1] = DATA_OPCODE;
@@ -196,7 +196,7 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
         }
         printf("Sent data block %d (%ld bytes) to client on port %d\n", block_number, bytes_read, ntohs(client_addr.sin_port));
 
-        char ack_packet[4];
+        unsigned char ack_packet[4];
         ssize_t bytes_received = recvfrom(data_socket, ack_packet, 4, 0, NULL, NULL);
         if (bytes_received < 0)
         {

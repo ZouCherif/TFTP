@@ -191,11 +191,11 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
     //attendre l'OACK
     socklen_t addr_len = sizeof(server_addr);
     unsigned char oack_packet[4];
-    ssize_t ack_recv = recvfrom(client_socket, oack_packet, sizeof(oack_packet), 0, (struct sockaddr *)&server_data_addr, &server_data_addr_len);
-    if (ack_recv < 0) {
+    ssize_t oack_recv = recvfrom(client_socket, oack_packet, sizeof(oack_packet), 0, (struct sockaddr *)&server_data_addr, &server_data_addr_len);
+    if (oack_recv < 0) {
         perror("Erreur lors de la réception de l'OACK");
         return;
-    } else if (ack_recv == 0) {
+    } else if (oack_recv == 0) {
         fprintf(stderr, "Connexion fermée par le serveur.\n");
         return;
     }
@@ -205,15 +205,13 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
         return;
     }
 
-
     //envoyer ACK
     unsigned char ack_packet[4];
     ack_packet[0] = 0;
     ack_packet[1] = ACK_OPCODE;
     ack_packet[2] = 0;
     ack_packet[3] = 0;
-    if (sendto(client_socket, ack_packet, 4, 0, (struct sockaddr *)&server_data_addr, server_data_addr_len) < 0);
-    {
+    if (sendto(client_socket, ack_packet, 4, 0, (struct sockaddr *)&server_data_addr, server_data_addr_len) < 0){
         perror("Erreur lors de l'envoi du ACK");
         return;
     }

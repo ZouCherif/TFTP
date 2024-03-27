@@ -22,6 +22,7 @@
 #define DATA_OPCODE 3
 #define ACK_OPCODE 4
 #define ERROR_OPCODE 5
+#define OACK_OPCODE 6
 
 void send_error_packet(int server_socket, struct sockaddr_in client_addr, int error_code, const char *error_message);
 void *handle_request(void *arg);
@@ -29,7 +30,7 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
 void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename);
 
 
-pthread_mutex_t file_mutexes[MAX_PACKET_SIZE];
+pthread_mutex_t file_mutexes[MAX_FILES];
 char *file_names[MAX_FILES];
 
 struct ClientRequest {
@@ -40,13 +41,13 @@ struct ClientRequest {
 };
 
 void init_file_mutexes() {
-    for (int i = 0; i < MAX_PACKET_SIZE; ++i) {
+    for (int i = 0; i < MAX_FILES; ++i) {
         pthread_mutex_init(&file_mutexes[i], NULL);
     }
 }
 
 void destroy_file_mutexes() {
-    for (int i = 0; i < MAX_PACKET_SIZE; ++i) {
+    for (int i = 0; i < MAX_FILES; ++i) {
         pthread_mutex_destroy(&file_mutexes[i]);
     }
 }
@@ -134,18 +135,17 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
     }
 
 
-    unsigned char ack_packet[4];
-    ack_packet[0] = 0;
-    ack_packet[1] = ACK_OPCODE;
-    ack_packet[2] = 0;
-    ack_packet[3] = 0;
+    unsigned char oack_packet[4];
+    oack_packet[0] = 0;
+    oack_packet[1] = OACK_OPCODE;
+    oack_packet[2] = 0;
+    oack_packet[3] = 0;
 
-    if (sendto(data_socket, ack_packet, sizeof(ack_packet), 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
-        perror("Erreur lors de l'envoi de l'ACK");
+    if (sendto(data_socket, oack_packet, sizeof(oack_packet), 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+        perror("Erreur lors de l'envoi de l'OACK");
         close(data_socket);
         return;
     }
-    
 
     FILE *file = fopen(filename, "wb");
     if (file == NULL) {
@@ -156,6 +156,9 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
     }
 
     unsigned short block_number = 1;
+    unsigned char ack_packet[4];
+    ack_packet[0] = 0;
+    ack_packet[1] = ACK_OPCODE;
     while (1) {
         unsigned char data_packet[MAX_PACKET_SIZE];
         ssize_t bytes_received = recvfrom(data_socket, data_packet, MAX_PACKET_SIZE, 0, NULL, NULL);
@@ -232,6 +235,32 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
         return;
     }
 
+    unsigned char oack_packet[4];
+    oack_packet[0] = 0;
+    oack_packet[1] = OACK_OPCODE;
+    oack_packet[2] = 0;
+    oack_packet[3] = 0;
+
+    if (sendto(data_socket, oack_packet, sizeof(oack_packet), 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+        perror("Erreur lors de l'envoi de l'OACK");
+        close(data_socket);
+        return;
+    }
+
+    unsigned char ack_packet[4];
+    ssize_t ack_recieved = recvfrom(data_socket, ack_packet, 4, 0, NULL, NULL);
+    if(ack_recieved <= 0){
+        perror("Erreur de réception du paquet ACK");
+        close(data_socket);
+        return;
+    }
+    if(ack_packet[1] != ACK_OPCODE){
+        fprintf(stderr, "Paquet ACK invalide reçu. Sortie...\n");
+        close(data_socket);
+        return;
+    }
+
+
     FILE *file = fopen(filename, "rb");
     if (file == NULL)
     {
@@ -260,7 +289,6 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
         }
         printf("Sent data block %d (%ld bytes) to client on port %d\n", block_number, bytes_read, ntohs(client_addr.sin_port));
 
-        unsigned char ack_packet[4];
         ssize_t bytes_received = recvfrom(data_socket, ack_packet, 4, 0, NULL, NULL);
         if (bytes_received < 0)
         {

@@ -196,7 +196,16 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
         if (data_size < 512)
             break;
 
+        if (block_number == 65535 && !bigfile) {
+            fprintf(stderr, "Fichier trop volumineux. Sortie...\n");
+            break;
+        }
+
         block_number++;
+        
+        if (block_number == 0) {
+            block_number = 1;
+        }
     }
 
     fclose(file);

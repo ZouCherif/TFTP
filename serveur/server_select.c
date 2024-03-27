@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -20,10 +21,11 @@
 #define DATA_OPCODE 3
 #define ACK_OPCODE 4
 #define ERROR_OPCODE 5
+#define OACK_OPCODE 6
 
 void send_error_packet(int server_socket, struct sockaddr_in client_addr, int error_code, const char *error_message);
-void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename);
-void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename);
+void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename, bool bigfile);
+void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename, bool bigfile);
 
 
 void send_error_packet(int server_socket, struct sockaddr_in client_addr, int error_code, const char *error_message){
@@ -38,7 +40,7 @@ void send_error_packet(int server_socket, struct sockaddr_in client_addr, int er
     sendto(server_socket, error_packet, strlen(error_message) + 5, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
 }
 
-void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename) {
+void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename, bool bigfile) {
     printf("Traitement de la demande d'écriture (WRQ) du client\n");
 
     int data_socket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -70,18 +72,17 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
     }
 
 
-    unsigned char ack_packet[4];
-    ack_packet[0] = 0;
-    ack_packet[1] = ACK_OPCODE;
-    ack_packet[2] = 0;
-    ack_packet[3] = 0;
+    unsigned char oack_packet[4];
+    oack_packet[0] = 0;
+    oack_packet[1] = OACK_OPCODE;
+    oack_packet[2] = 0;
+    oack_packet[3] = 0;
 
-    if (sendto(data_socket, ack_packet, sizeof(ack_packet), 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
-        perror("Erreur lors de l'envoi de l'ACK");
+    if (sendto(data_socket, oack_packet, sizeof(oack_packet), 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+        perror("Erreur lors de l'envoi de l'OACK");
         close(data_socket);
         return;
     }
-    
 
     FILE *file = fopen(filename, "wb");
     if (file == NULL) {
@@ -92,6 +93,9 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
     }
 
     unsigned short block_number = 1;
+    unsigned char ack_packet[4];
+    ack_packet[0] = 0;
+    ack_packet[1] = ACK_OPCODE;
     while (1) {
         unsigned char data_packet[MAX_PACKET_SIZE];
         ssize_t bytes_received = recvfrom(data_socket, data_packet, MAX_PACKET_SIZE, 0, NULL, NULL);
@@ -127,7 +131,16 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
         if (data_size < 512)
             break;
 
+        if (block_number == 65535 && !bigfile) {
+            fprintf(stderr, "Fichier trop volumineux. Sortie...\n");
+            break;
+        }
+
         block_number++;
+        
+        if (block_number == 0) {
+            block_number = 1;
+        }
     }
 
     fclose(file);
@@ -135,7 +148,7 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
 }
 
 
-void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename)
+void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename, bool bigfile)
 {
     printf("Traitement de la demande de lecture (RRQ) du client\n");
 
@@ -168,6 +181,32 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
         return;
     }
 
+    unsigned char oack_packet[4];
+    oack_packet[0] = 0;
+    oack_packet[1] = OACK_OPCODE;
+    oack_packet[2] = 0;
+    oack_packet[3] = 0;
+
+    if (sendto(data_socket, oack_packet, sizeof(oack_packet), 0, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
+        perror("Erreur lors de l'envoi de l'OACK");
+        close(data_socket);
+        return;
+    }
+
+    unsigned char ack_packet[4];
+    ssize_t ack_recieved = recvfrom(data_socket, ack_packet, 4, 0, NULL, NULL);
+    if(ack_recieved <= 0){
+        perror("Erreur de réception du paquet ACK");
+        close(data_socket);
+        return;
+    }
+    if(ack_packet[1] != ACK_OPCODE){
+        fprintf(stderr, "Paquet ACK invalide reçu. Sortie...\n");
+        close(data_socket);
+        return;
+    }
+
+
     FILE *file = fopen(filename, "rb");
     if (file == NULL)
     {
@@ -196,7 +235,6 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
         }
         printf("Sent data block %d (%ld bytes) to client on port %d\n", block_number, bytes_read, ntohs(client_addr.sin_port));
 
-        unsigned char ack_packet[4];
         ssize_t bytes_received = recvfrom(data_socket, ack_packet, 4, 0, NULL, NULL);
         if (bytes_received < 0)
         {
@@ -229,7 +267,17 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
             break;
         }
 
+        if (block_number == 65535 && !bigfile) {
+            send_error_packet(server_socket, client_addr, 3, "Fichier trop volumineux");
+            fprintf(stderr, "Fichier trop volumineux. Sortie...\n");
+            break;
+        }
+
         block_number++;
+
+        if (block_number == 0) {
+            block_number = 1;
+        }
 
         if (bytes_read < 512)
             break;
@@ -268,6 +316,7 @@ int main(){
     fd_set read_fds;
     int max_fd = server_socket + 1;
 
+    char request_packet[MAX_PACKET_SIZE];
     while (1)
     {
         FD_ZERO(&read_fds);
@@ -282,7 +331,7 @@ int main(){
 
         if (FD_ISSET(server_socket, &read_fds))
         {
-            char request_packet[MAX_PACKET_SIZE];
+            memset(request_packet, 0, MAX_PACKET_SIZE);
             ssize_t bytes_received = recvfrom(server_socket, request_packet, MAX_PACKET_SIZE, 0, (struct sockaddr *)&client_addr, &client_addr_len);
             if (bytes_received < 0)
             {
@@ -296,13 +345,23 @@ int main(){
             char filename[MAX_PACKET_SIZE];
             strcpy(filename, request_packet + 2);
 
+            bool bigfile = false;
+            char *option = request_packet + strlen(filename) + 9;
+            while (*option != '\0') {
+                if (strcmp(option, "bigfile") == 0) {
+                    bigfile = true;
+                    break;
+                }
+                option += strlen(option) + 1;
+            }
+
             switch (opcode)
             {
             case RRQ_OPCODE:
-                handle_rrq(server_socket, client_addr, filename);
+                handle_rrq(server_socket, client_addr, filename, bigfile);
                 break;
             case WRQ_OPCODE:
-                handle_wrq(server_socket, client_addr, filename);
+                handle_wrq(server_socket, client_addr, filename, bigfile);
                 break;
             default:
                 printf("Opcode %d non supporté. Envoi d'un paquet d'erreur au client\n", opcode);

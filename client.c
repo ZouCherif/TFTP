@@ -264,6 +264,9 @@ void handle_rrq(int client_socket, struct sockaddr_in server_addr, const char *f
             break;
         }
         block_number++;
+        if(block_number == 0){
+            block_number = 1;
+        }
     }
 
     fclose(file);

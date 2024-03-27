@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -26,8 +27,8 @@
 
 void send_error_packet(int server_socket, struct sockaddr_in client_addr, int error_code, const char *error_message);
 void *handle_request(void *arg);
-void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename);
-void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename);
+void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename, bool bigfile);
+void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename,bool bigfile);
 
 
 pthread_mutex_t file_mutexes[MAX_FILES];
@@ -38,6 +39,7 @@ struct ClientRequest {
     struct sockaddr_in client_addr;
     char filename[MAX_PACKET_SIZE];
     unsigned short opcode;
+    bool bigfile;
 };
 
 void init_file_mutexes() {
@@ -85,12 +87,12 @@ void *handle_request(void *arg) {
     switch (request->opcode) {
         case RRQ_OPCODE:
             pthread_mutex_lock(&file_mutexes[file_index]);
-            handle_rrq(request->server_socket, request->client_addr, request->filename);
+            handle_rrq(request->server_socket, request->client_addr, request->filename, request->bigfile);
             pthread_mutex_unlock(&file_mutexes[file_index]);
             break;
         case WRQ_OPCODE:
             pthread_mutex_lock(&file_mutexes[file_index]);
-            handle_wrq(request->server_socket, request->client_addr, request->filename);
+            handle_wrq(request->server_socket, request->client_addr, request->filename, request->bigfile);
             pthread_mutex_unlock(&file_mutexes[file_index]);
             break;
         default:
@@ -103,7 +105,7 @@ void *handle_request(void *arg) {
     pthread_exit(NULL);
 }
 
-void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename) {
+void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filename, bool bigfile) {
     printf("Traitement de la demande d'écriture (WRQ) du client\n");
 
     int data_socket = socket(AF_INET, SOCK_DGRAM, 0);
@@ -202,7 +204,7 @@ void handle_wrq(int server_socket, struct sockaddr_in client_addr, char *filenam
 }
 
 
-void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename)
+void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filename, bool bigfile)
 {
     printf("Traitement de la demande de lecture (RRQ) du client\n");
 
@@ -321,7 +323,17 @@ void handle_rrq(int server_socket, struct sockaddr_in client_addr, char *filenam
             break;
         }
 
+        if (block_number == 65535 && !bigfile) {
+            send_error_packet(server_socket, client_addr, 3, "Fichier trop volumineux");
+            fprintf(stderr, "Fichier trop volumineux. Sortie...\n");
+            break;
+        }
+
         block_number++;
+
+        if (block_number == 0) {
+            block_number = 1;
+        }
 
         if (bytes_read < 512)
             break;
@@ -385,10 +397,11 @@ int main()
     }
 
     printf("Serveur en écoute sur le port %d...\n", SERVER_PORT);
+    char request_packet[MAX_PACKET_SIZE];
 
     while (1)
     {
-        char request_packet[MAX_PACKET_SIZE];
+        memset(request_packet, 0, MAX_PACKET_SIZE);
         ssize_t bytes_received = recvfrom(server_socket, request_packet, MAX_PACKET_SIZE, 0, (struct sockaddr *)&client_addr, &client_addr_len);
         if (bytes_received < 0)
         {
@@ -404,11 +417,22 @@ int main()
             perror("Erreur d'allocation de mémoire pour la requête client");
             continue;
         }
+        request->bigfile = false;
 
         request->server_socket = server_socket;
         request->client_addr = client_addr;
         strcpy(request->filename, request_packet + 2);
         request->opcode = opcode;
+
+        char *option= request_packet + strlen(request->filename) + 9;
+
+        while (*option != '\0') {
+            if (strcmp(option, "bigfile") == 0) {
+                request->bigfile = true;
+                break;
+            }
+            option += strlen(option) + 1;
+        }
 
         pthread_t thread;
         if (pthread_create(&thread, NULL, handle_request, (void *)request) != 0) {
